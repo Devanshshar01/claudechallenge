@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -21,7 +21,8 @@ import { PrivacyBadge } from '@/components/PrivacyBadge';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { analyzeEntry, getMoodColor, getMoodEmoji, SentimentResult } from '@/utils/analysis';
-import { saveEntry } from '@/utils/storage';
+import { getEntryById, JournalEntry, saveEntry, updateEntry } from '@/utils/storage';
+import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
 
@@ -30,10 +31,23 @@ export default function JournalScreen() {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [result, setResult] = useState<SentimentResult | null>(null);
     const [isSaved, setIsSaved] = useState(false);
+    const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
 
     const router = useRouter();
+    const params = useLocalSearchParams();
     const colorScheme = useColorScheme();
     const theme = Colors[colorScheme ?? 'light'];
+
+    useEffect(() => {
+        if (params.entryId) {
+            getEntryById(params.entryId as string).then(entry => {
+                if (entry) {
+                    setEditingEntry(entry);
+                    setText(entry.content);
+                }
+            });
+        }
+    }, [params.entryId]);
 
     const wordCount = text.trim().split(/\s+/).filter(w => w.length > 0).length;
     const charCount = text.length;
@@ -42,6 +56,7 @@ export default function JournalScreen() {
     const handleAnalyze = async () => {
         if (!canAnalyze) return;
 
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         setIsAnalyzing(true);
         // Simulate a brief delay for "processing" feel and animation
         setTimeout(() => {
@@ -55,21 +70,34 @@ export default function JournalScreen() {
         if (!result) return;
 
         try {
-            await saveEntry({
-                content: text,
-                mood: result.mood,
-                tags: Object.entries(result.emotions)
-                    .filter(([_, score]) => score > 0)
-                    .map(([emotion]) => emotion),
-            });
+            if (editingEntry) {
+                await updateEntry({
+                    ...editingEntry,
+                    content: text,
+                    mood: result.mood,
+                    tags: Object.entries(result.emotions)
+                        .filter(([_, score]) => score > 0)
+                        .map(([emotion]) => emotion),
+                });
+            } else {
+                await saveEntry({
+                    content: text,
+                    mood: result.mood,
+                    tags: Object.entries(result.emotions)
+                        .filter(([_, score]) => score > 0)
+                        .map(([emotion]) => emotion),
+                });
+            }
 
             setIsSaved(true);
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             Alert.alert(
                 "Saved Successfully",
                 "Your entry has been saved to your private journal.",
                 [{ text: "OK", onPress: () => router.back() }]
             );
         } catch (error) {
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             Alert.alert("Error", "Failed to save entry. Please try again.");
         }
     };
@@ -83,7 +111,8 @@ export default function JournalScreen() {
                 {
                     text: "Clear",
                     style: "destructive",
-                    onPress: () => {
+                    onPress: async () => {
+                        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
                         setText('');
                         setResult(null);
                         setIsSaved(false);

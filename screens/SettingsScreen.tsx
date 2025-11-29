@@ -17,13 +17,16 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Colors } from '@/constants/Colors';
-import { deleteAllEntries, exportDataAsJSON, getStats } from '@/utils/storage';
+import { useTheme as useThemeContext } from '@/context/ThemeContext';
+import { deleteAllEntries, exportDataAsJSON, exportDataAsPDF, getStats } from '@/utils/storage';
+import * as Haptics from 'expo-haptics';
 
 export default function SettingsScreen() {
     const [stats, setStats] = useState<any>(null);
     const [showHowItWorks, setShowHowItWorks] = useState(false);
     const colorScheme = useColorScheme();
     const theme = Colors[colorScheme ?? 'light'];
+    const themeContext = useThemeContext();
 
     const loadStats = async () => {
         const storageStats = await getStats();
@@ -61,6 +64,43 @@ export default function SettingsScreen() {
         } catch (error) {
             Alert.alert('Error', 'Failed to export data. Please try again.');
         }
+    };
+
+    const handleExportPDF = async () => {
+        try {
+            await exportDataAsPDF();
+        } catch (error) {
+            Alert.alert('Error', 'Failed to export PDF. Please try again.');
+        }
+    };
+
+    const handleLoadDemoData = () => {
+        Alert.alert(
+            'Load Demo Data',
+            'This will add 15 sample journal entries for demonstration purposes. Your existing data will not be deleted.\n\nPerfect for hackathon presentations!',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Load Demo Data',
+                    onPress: async () => {
+                        try {
+                            const { loadDemoData } = require('@/utils/demoData');
+                            const result = await loadDemoData();
+                            if (result.success) {
+                                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                await loadStats();
+                                Alert.alert('Success', `Loaded ${result.count} demo entries! Check the Insights screen.`);
+                            } else {
+                                throw new Error('Failed to load demo data');
+                            }
+                        } catch (error) {
+                            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                            Alert.alert('Error', 'Failed to load demo data. Please try again.');
+                        }
+                    },
+                },
+            ]
+        );
     };
 
     const handleDeleteAllData = () => {
@@ -179,7 +219,23 @@ export default function SettingsScreen() {
                     <Text style={styles.buttonText}>Export Data (JSON)</Text>
                 </TouchableOpacity>
 
+                <TouchableOpacity
+                    style={[styles.button, { backgroundColor: theme.secondary, marginTop: 12 }]}
+                    onPress={handleExportPDF}
+                >
+                    <Ionicons name="document-text-outline" size={20} color="#FFF" />
+                    <Text style={styles.buttonText}>Export as PDF</Text>
+                </TouchableOpacity>
+
                 <View style={styles.divider} />
+
+                <TouchableOpacity
+                    style={[styles.button, { backgroundColor: '#F59E0B', marginBottom: 12 }]}
+                    onPress={handleLoadDemoData}
+                >
+                    <Ionicons name="flask-outline" size={20} color="#FFF" />
+                    <Text style={styles.buttonText}>Load Demo Data (Presentation)</Text>
+                </TouchableOpacity>
 
                 <TouchableOpacity
                     style={[styles.button, styles.dangerButton]}
@@ -197,24 +253,41 @@ export default function SettingsScreen() {
                     <Text style={[styles.cardTitle, { color: theme.text }]}>Appearance</Text>
                 </View>
 
-                <View style={styles.settingRow}>
-                    <View>
-                        <Text style={[styles.settingLabel, { color: theme.text }]}>Theme</Text>
-                        <Text style={[styles.settingSubtext, { color: theme.subtext }]}>
-                            Currently: {colorScheme === 'dark' ? 'Dark' : 'Light'}
-                        </Text>
+                <View>
+                    <Text style={[styles.settingLabel, { color: theme.text, marginBottom: 12 }]}>Theme</Text>
+                    <View style={styles.themeOptions}>
+                        {['system', 'light', 'dark'].map((themeOption) => (
+                            <TouchableOpacity
+                                key={themeOption}
+                                onPress={async () => {
+                                    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    await themeContext.setTheme(themeOption as 'system' | 'light' | 'dark');
+                                }}
+                                style={[
+                                    styles.themeOption,
+                                    themeContext.theme === themeOption && [
+                                        styles.themeOptionActive,
+                                        { backgroundColor: theme.primary, borderColor: theme.primary }
+                                    ],
+                                ]}
+                            >
+                                <Ionicons
+                                    name={
+                                        themeOption === 'system' ? 'phone-portrait' :
+                                            themeOption === 'light' ? 'sunny' : 'moon'
+                                    }
+                                    size={20}
+                                    color={themeContext.theme === themeOption ? '#FFF' : theme.subtext}
+                                />
+                                <Text style={[
+                                    styles.themeOptionText,
+                                    { color: themeContext.theme === themeOption ? '#FFF' : theme.text }
+                                ]}>
+                                    {themeOption.charAt(0).toUpperCase() + themeOption.slice(1)}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
                     </View>
-                    <Text style={[styles.settingValue, { color: theme.subtext }]}>Auto (System)</Text>
-                </View>
-
-                <View style={styles.divider} />
-
-                <View style={styles.settingRow}>
-                    <View>
-                        <Text style={[styles.settingLabel, { color: theme.text }]}>Font Size</Text>
-                        <Text style={[styles.settingSubtext, { color: theme.subtext }]}>Adjust text size</Text>
-                    </View>
-                    <Text style={[styles.settingValue, { color: theme.subtext }]}>Medium</Text>
                 </View>
             </Animated.View>
 
@@ -500,5 +573,29 @@ const styles = StyleSheet.create({
         fontSize: 12,
         textAlign: 'center',
         fontStyle: 'italic',
+    },
+    themeOptions: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    themeOption: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: '#E2E8F0',
+        backgroundColor: '#F8FAFC',
+    },
+    themeOptionActive: {
+        borderWidth: 2,
+    },
+    themeOptionText: {
+        fontSize: 14,
+        fontWeight: '600',
     },
 });

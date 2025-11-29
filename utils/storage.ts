@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 export interface JournalEntry {
     id: string;
@@ -64,6 +66,17 @@ export const saveEntry = async (entryData: Omit<JournalEntry, 'id' | 'timestamp'
     }
 };
 
+export const updateEntry = async (entry: JournalEntry): Promise<void> => {
+    try {
+        const entries = await getAllEntries();
+        const updatedEntries = entries.map(e => e.id === entry.id ? { ...entry, updatedAt: Date.now() } : e);
+        await saveData(updatedEntries);
+    } catch (e) {
+        console.error('Error updating entry:', e);
+        throw new Error('Failed to update entry');
+    }
+};
+
 export const getAllEntries = async (): Promise<JournalEntry[]> => {
     try {
         const encryptedData = await AsyncStorage.getItem(STORAGE_KEY);
@@ -119,6 +132,94 @@ export const exportDataAsJSON = async (): Promise<string> => {
     } catch (e) {
         console.error('Error exporting data:', e);
         throw new Error('Failed to export data');
+    }
+};
+
+export const exportDataAsText = async (): Promise<string> => {
+    try {
+        const entries = await getAllEntries();
+        let text = "# My MindSafe Journal\n\n";
+
+        entries.forEach(entry => {
+            const date = new Date(entry.timestamp).toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+            const time = new Date(entry.timestamp).toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit'
+            });
+
+            text += `## ${date} at ${time}\n`;
+            text += `**Mood:** ${entry.mood.charAt(0).toUpperCase() + entry.mood.slice(1)}\n\n`;
+            text += `${entry.content}\n\n`;
+            if (entry.tags && entry.tags.length > 0) {
+                text += `*Tags: ${entry.tags.map(t => `#${t}`).join(', ')}*\n\n`;
+            }
+            text += "---\n\n";
+        });
+
+        return text;
+    } catch (e) {
+        console.error('Error exporting text data:', e);
+        throw new Error('Failed to export data');
+    }
+};
+
+export const exportDataAsPDF = async (): Promise<void> => {
+    try {
+        const entries = await getAllEntries();
+
+        let htmlContent = `
+            <html>
+            <head>
+                <style>
+                    body { font-family: 'Helvetica', sans-serif; padding: 40px; color: #333; }
+                    h1 { color: #4F46E5; text-align: center; margin-bottom: 40px; }
+                    .entry { margin-bottom: 30px; border-bottom: 1px solid #E2E8F0; padding-bottom: 20px; }
+                    .header { display: flex; justify-content: space-between; margin-bottom: 10px; color: #64748B; font-size: 0.9em; }
+                    .mood { font-weight: bold; color: #4F46E5; }
+                    .content { line-height: 1.6; white-space: pre-wrap; }
+                    .tags { margin-top: 10px; color: #94A3B8; font-size: 0.8em; font-style: italic; }
+                </style>
+            </head>
+            <body>
+                <h1>My MindSafe Journal</h1>
+        `;
+
+        entries.forEach(entry => {
+            const date = new Date(entry.timestamp).toLocaleDateString('en-US', {
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+            });
+            const time = new Date(entry.timestamp).toLocaleTimeString('en-US', {
+                hour: 'numeric', minute: '2-digit'
+            });
+
+            htmlContent += `
+                <div class="entry">
+                    <div class="header">
+                        <span>${date} at ${time}</span>
+                        <span class="mood">${entry.mood.toUpperCase()}</span>
+                    </div>
+                    <div class="content">${entry.content.replace(/\n/g, '<br>')}</div>
+                    ${entry.tags && entry.tags.length > 0 ? `<div class="tags">Tags: ${entry.tags.join(', ')}</div>` : ''}
+                </div>
+            `;
+        });
+
+        htmlContent += `
+            </body>
+            </html>
+        `;
+
+        const { uri } = await Print.printToFileAsync({ html: htmlContent });
+        await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+
+    } catch (e) {
+        console.error('Error exporting PDF:', e);
+        throw new Error('Failed to export PDF');
     }
 };
 
@@ -227,3 +328,4 @@ const saveData = async (entries: JournalEntry[]) => {
 
 // --- Clear Storage (Alias for consistency) ---
 export const clearEntries = deleteAllEntries;
+export const getEntries = getAllEntries;

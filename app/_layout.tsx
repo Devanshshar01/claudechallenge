@@ -1,6 +1,7 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -9,8 +10,10 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import 'react-native-reanimated';
 
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { ThemeProvider } from '@/context/ThemeContext';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -27,6 +30,7 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [isAppReady, setIsAppReady] = useState(false);
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean | null>(null);
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
 
@@ -44,12 +48,17 @@ export default function RootLayout() {
   useEffect(() => {
     async function prepare() {
       try {
+        // Check if user has completed onboarding
+        const hasCompleted = await AsyncStorage.getItem('hasCompletedOnboarding');
+        setHasCompletedOnboarding(hasCompleted === 'true');
+
         // You can add any additional loading logic here
-        // For example: preload data, check auth state, etc.
         await new Promise(resolve => setTimeout(resolve, 500)); // Minimum splash time
+
+        setIsAppReady(true);
       } catch (e) {
         console.warn(e);
-      } finally {
+        setHasCompletedOnboarding(false); // Default to showing onboarding on error
         setIsAppReady(true);
       }
     }
@@ -66,7 +75,7 @@ export default function RootLayout() {
   }, [loaded, isAppReady]);
 
   // Show loading indicator while fonts are loading
-  if (!loaded || !isAppReady) {
+  if (!loaded || !isAppReady || hasCompletedOnboarding === null) {
     return (
       <View style={{
         flex: 1,
@@ -79,28 +88,33 @@ export default function RootLayout() {
     );
   }
 
-  return <RootLayoutNav />;
+  return <RootLayoutNav hasCompletedOnboarding={hasCompletedOnboarding} />;
 }
 
-function RootLayoutNav() {
+function RootLayoutNav({ hasCompletedOnboarding }: { hasCompletedOnboarding: boolean }) {
   const colorScheme = useColorScheme();
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      {/* StatusBar configuration for light/dark mode */}
-      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+    <ThemeProvider>
+      <ErrorBoundary>
+        <NavigationThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          {/* StatusBar configuration for light/dark mode */}
+          <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
 
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="modal"
-          options={{
-            presentation: 'modal',
-            title: 'New Entry',
-            headerShown: true,
-          }}
-        />
-      </Stack>
+          <Stack initialRouteName={hasCompletedOnboarding ? '(tabs)' : 'onboarding'}>
+            <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="modal"
+              options={{
+                presentation: 'modal',
+                title: 'New Entry',
+                headerShown: true,
+              }}
+            />
+          </Stack>
+        </NavigationThemeProvider>
+      </ErrorBoundary>
     </ThemeProvider>
   );
 }
